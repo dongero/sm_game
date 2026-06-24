@@ -187,10 +187,12 @@ var enemyTypes = [
 
 var mapEnemies = (function() {
 	var enemies = [];
-	// 169 ghosts on a 4-unit grid around map center (128, 128)
-	for (var ey = 103; ey <= 151; ey += 4) {
-		for (var ex = 103; ex <= 151; ex += 4) {
-			enemies.push({type:0, x: ex + 0.5, y: ey + 0.5});
+	// ~3900 ghosts on a 4-unit grid across the full map interior
+	for (var ey = 3; ey <= 253; ey += 4) {
+		for (var ex = 3; ex <= 253; ex += 4) {
+			if (ex >= 19 && ex <= 68 && ey >= 5 && ey <= 7) continue; // staircase
+			if (ex >= 8  && ex <= 13 && ey >= 4 && ey <= 9) continue; // player start
+			enemies.push({type:0, x: ex + 1.5, y: ey + 1.5});
 		}
 	}
 	return enemies;
@@ -211,6 +213,8 @@ var player = {
 
 var mapWidth = 0;
 var mapHeight = 0;
+var spatialGrid = [];
+var occupiedCells = [];
 
 var miniMapScale = 2;
 
@@ -397,6 +401,8 @@ function init() {
 	mapWidth = map[0].length;
 	mapHeight = map.length;
 
+	for (var i = 0; i < mapWidth * mapHeight; i++) spatialGrid[i] = [];
+
 	bindKeys();
 
 	initMouseLook();
@@ -494,17 +500,76 @@ function initSprites() {
 var lastGameCycleTime = 0;
 var gameCycleDelay = 1000 / 30; // aim for 30 fps for game logic
 
+function separateEnemies() {
+	var SEP = 0.75;
+	var SEP2 = SEP * SEP;
+
+	// rebuild spatial grid (clear only previously occupied cells)
+	for (var i = 0; i < occupiedCells.length; i++) spatialGrid[occupiedCells[i]].length = 0;
+	occupiedCells.length = 0;
+	for (var i = 0; i < enemies.length; i++) {
+		var e = enemies[i];
+		var cx = e.x|0, cy = e.y|0;
+		if (cx < 0 || cx >= mapWidth || cy < 0 || cy >= mapHeight) continue;
+		var idx = cy * mapWidth + cx;
+		if (spatialGrid[idx].length === 0) occupiedCells.push(idx);
+		spatialGrid[idx].push(i);
+	}
+
+	// push overlapping pairs apart
+	for (var i = 0; i < enemies.length; i++) {
+		var a = enemies[i];
+		var cx = a.x|0, cy = a.y|0;
+		for (var dy = -1; dy <= 1; dy++) {
+			var gy = cy + dy;
+			if (gy < 0 || gy >= mapHeight) continue;
+			for (var dx = -1; dx <= 1; dx++) {
+				var gx = cx + dx;
+				if (gx < 0 || gx >= mapWidth) continue;
+				var cell = spatialGrid[gy * mapWidth + gx];
+				for (var k = 0; k < cell.length; k++) {
+					var j = cell[k];
+					if (j <= i) continue;
+					var b = enemies[j];
+					var ddx = b.x - a.x, ddy = b.y - a.y;
+					var dd = ddx*ddx + ddy*ddy;
+					if (dd < SEP2 && dd > 0.0001) {
+						var dist = Math.sqrt(dd);
+						var push = (SEP - dist) * 0.5 / dist;
+						var px = ddx * push, py = ddy * push;
+						a.x -= px; a.y -= py;
+						b.x += px; b.y += py;
+					}
+				}
+			}
+		}
+	}
+}
+
 function gameCycle() {
 	var now = new Date().getTime();
 
 	// time since last game logic
 	var timeDelta = now - lastGameCycleTime;
 
+	// save position before move so we can revert if step-up is too steep
+	var prevX = player.x, prevY = player.y;
+	var prevFloor = (floorMap[Math.floor(player.y)] || [])[Math.floor(player.x)] || 0;
+
 	move(player, timeDelta);
 
-	// smooth elevation: lerp player.z toward terrain height at current cell
+	// block step-ups > 0.15 units (ramp is 0.05/cell; tower windows jump 2.0)
 	var pFloor = (floorMap[Math.floor(player.y)] || [])[Math.floor(player.x)] || 0;
-	player.z += (pFloor + 0.5 - player.z) * 0.05;
+	if (pFloor - prevFloor > 0.15) {
+		player.x = prevX;
+		player.y = prevY;
+		pFloor = prevFloor;
+	}
+
+	// smooth elevation: fall fast (0.18), climb slow (0.05)
+	var targetZ = pFloor + 0.5;
+	var lerpRate = targetZ < player.z ? 0.18 : 0.05;
+	player.z += (targetZ - player.z) * lerpRate;
 
 	ai(timeDelta);
 
@@ -514,6 +579,8 @@ function gameCycle() {
 		var eFloor = (floorMap[Math.floor(e.y)] || [])[Math.floor(e.x)] || 0;
 		e.z = (e.z || 0) + (eFloor - (e.z || 0)) * 0.12;
 	}
+
+	separateEnemies();
 
 	var cycleDelay = gameCycleDelay; 
 
