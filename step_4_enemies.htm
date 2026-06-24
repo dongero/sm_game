@@ -188,8 +188,8 @@ var enemyTypes = [
 var mapEnemies = (function() {
 	var enemies = [];
 	// ~3900 ghosts on a 4-unit grid across the full map interior
-	for (var ey = 3; ey <= 253; ey += 4) {
-		for (var ex = 3; ex <= 253; ex += 4) {
+	for (var ey = 3; ey <= 253; ey += 8) {
+		for (var ex = 3; ex <= 253; ex += 8) {
 			if (ex >= 19 && ex <= 68 && ey >= 5 && ey <= 7) continue; // staircase
 			if (ex >= 8  && ex <= 13 && ey >= 4 && ey <= 9) continue; // player start
 			enemies.push({type:0, x: ex + 1.5, y: ey + 1.5});
@@ -201,7 +201,7 @@ var mapEnemies = (function() {
 var player = {
 	x : 10.5,		// current x, y position
 	y : 6.5,
-	z : 0.5,		// eye height in world units (0.5 = midway up a 1-unit wall)
+	z : 0.75,		// eye height in world units (0.5 = midway up a 1-unit wall)
 	dir : 0,		// the direction that the player is turning, either -1 for left or 1 for right.
 	rotDeg : 0,		// the current angle of rotation
 	rot : 0,		// rotation in radians
@@ -224,6 +224,10 @@ var horizonY = Math.round(screenHeight * 0.35);
 var pitchOffset = 0;
 
 var showOverlay = true;
+
+var FOG_START = 14;
+var FOG_END   = 34;
+var FOG_BG    = 17;
 
 var stripWidth = 3;
 var fov = 60 * Math.PI / 180;
@@ -295,13 +299,24 @@ function makeCeilTex() {
 }
 
 function initFloorCeiling() {
-	floorTex = makeFloorTex();
+	floorTex = makeFloorTex(); // replaced by image load below
 	ceilTex = makeCeilTex();
 	fcCanvas = $("floor-ceiling");
 	fcCanvas.width = screenWidth;
 	fcCanvas.height = screenHeight;
 	fcCtx = fcCanvas.getContext("2d");
 	fcImageData = fcCtx.createImageData(screenWidth, screenHeight);
+
+	var tmpCanvas = dc("canvas");
+	tmpCanvas.width = TEX_SIZE;
+	tmpCanvas.height = TEX_SIZE;
+	var tmpCtx = tmpCanvas.getContext("2d");
+	var wallImg = new Image();
+	wallImg.onload = function() {
+		tmpCtx.drawImage(wallImg, 0, 0, TEX_SIZE, TEX_SIZE);
+		floorTex = tmpCtx.getImageData(0, 0, TEX_SIZE, TEX_SIZE).data;
+	};
+	wallImg.src = "data:image/png;base64,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";
 }
 
 function renderFloorCeiling() {
@@ -314,41 +329,35 @@ function renderFloorCeiling() {
 	var dRY = Math.sin(player.rot + fovHalf) - rayDirY0;
 	var ceilH = screenHeight - horizonY;
 
-	var pFloorHeight = (floorMap[Math.floor(player.y)] || [])[Math.floor(player.x)] || 0;
 	var floorDistScaleGround = horizonY * 2 * player.z;
-	var floorDistScaleElev   = horizonY * 2 * (player.z - pFloorHeight);
 
 	// Floor rows (below effective horizon)
 	for (var y = Math.max(0, Math.floor(eh) + 1); y < screenHeight; y++) {
 		var yeh = y - eh;
 		var groundDist = floorDistScaleGround / yeh;
 		if (groundDist <= 0) continue;
-		var elevDist = (pFloorHeight > 0 && floorDistScaleElev > 0) ? floorDistScaleElev / yeh : -1;
 
 		var stepX = groundDist * dRX / screenWidth;
 		var stepY = groundDist * dRY / screenWidth;
 		var floorX = player.x + groundDist * rayDirX0;
 		var floorY = player.y + groundDist * rayDirY0;
 
-		var eStepX = 0, eStepY = 0, eFX = 0, eFY = 0;
-		if (elevDist > 0) {
-			eStepX = elevDist * dRX / screenWidth;
-			eStepY = elevDist * dRY / screenWidth;
-			eFX = player.x + elevDist * rayDirX0;
-			eFY = player.y + elevDist * rayDirY0;
-		}
-
 		var rowOff = y * screenWidth;
 
 		for (var x = 0; x < screenWidth; x++) {
+			// Sample floor height at the ground-level position, then rescale
+			// the texture lookup toward the player by the elevation ratio so the
+			// ramp (and any per-cell floor height) renders at the correct depth.
+			var gxi = floorX|0, gyi = floorY|0;
+			var h = (gyi >= 0 && gyi < 256 && gxi >= 0 && gxi < 256) ? (floorMap[gyi][gxi] || 0) : 0;
 			var sX, sY;
-			if (pFloorHeight > 0) {
-				var gxi = floorX|0, gyi = floorY|0;
-				var cf = (gyi >= 0 && gyi < 256 && gxi >= 0 && gxi < 256) ? (floorMap[gyi][gxi] || 0) : 0;
-				if (cf > 0) { sX = eFX; sY = eFY; }
-				else        { sX = floorX; sY = floorY; }
+			if (h > 0 && player.z > h) {
+				var ratio = (player.z - h) / player.z;
+				sX = player.x + (floorX - player.x) * ratio;
+				sY = player.y + (floorY - player.y) * ratio;
 			} else {
-				sX = floorX; sY = floorY;
+				sX = floorX;
+				sY = floorY;
 			}
 
 			var tx = Math.floor(sX * TEX_SIZE) & mask;
@@ -357,13 +366,15 @@ function renderFloorCeiling() {
 			if (ty < 0) ty += TEX_SIZE;
 			var ti = (ty * TEX_SIZE + tx) << 2;
 			var pi = (rowOff + x) << 2;
-			data[pi]   = floorTex[ti];
-			data[pi+1] = floorTex[ti+1];
-			data[pi+2] = floorTex[ti+2];
+			var fogDist = (h > 0 && player.z > h) ? groundDist * (player.z - h) / player.z : groundDist;
+			var fog = Math.max(0, Math.min(1, (fogDist - FOG_START) / (FOG_END - FOG_START)));
+			var inv = 1 - fog;
+			data[pi]   = (floorTex[ti]   * inv + FOG_BG * fog) | 0;
+			data[pi+1] = (floorTex[ti+1] * inv + FOG_BG * fog) | 0;
+			data[pi+2] = (floorTex[ti+2] * inv + FOG_BG * fog) | 0;
 			data[pi+3] = 255;
 
 			floorX += stepX; floorY += stepY;
-			eFX += eStepX;   eFY += eStepY;
 		}
 	}
 
@@ -384,9 +395,11 @@ function renderFloorCeiling() {
 			if (ty < 0) ty += TEX_SIZE;
 			var ti = (ty * TEX_SIZE + tx) << 2;
 			var pi = (rowOff + x) << 2;
-			data[pi]   = ceilTex[ti];
-			data[pi+1] = ceilTex[ti+1];
-			data[pi+2] = ceilTex[ti+2];
+			var fog = Math.max(0, Math.min(1, (rowDist - FOG_START) / (FOG_END - FOG_START)));
+			var inv = 1 - fog;
+			data[pi]   = (ceilTex[ti]   * inv + FOG_BG * fog) | 0;
+			data[pi+1] = (ceilTex[ti+1] * inv + FOG_BG * fog) | 0;
+			data[pi+2] = (ceilTex[ti+2] * inv + FOG_BG * fog) | 0;
 			data[pi+3] = 255;
 			floorX += stepX;
 			floorY += stepY;
@@ -566,9 +579,9 @@ function gameCycle() {
 		pFloor = prevFloor;
 	}
 
-	// smooth elevation: fall fast (0.18), climb slow (0.05)
+	// smooth elevation: fall fast (0.18), climb at 0.25
 	var targetZ = pFloor + 0.5;
-	var lerpRate = targetZ < player.z ? 0.18 : 0.05;
+	var lerpRate = targetZ < player.z ? 0.18 : 0.25;
 	player.z += (targetZ - player.z) * lerpRate;
 
 	ai(timeDelta);
@@ -798,6 +811,9 @@ function renderEnemies() {
 				oldStyles.display = styleDisplay;
 			}
 
+			var eFog = Math.max(0, Math.min(1, (dist - FOG_START) / (FOG_END - FOG_START)));
+			style.filter = "brightness(" + (1 - eFog * 0.93).toFixed(3) + ")";
+
 			var styleClip = "rect(0, " + (size*(enemy.state+1)) + ", " + size + ", " + (size*(enemy.state)) + ")";
 			if (styleClip != oldStyles.clip) {
 				style.clip = styleClip;
@@ -839,7 +855,8 @@ function initScreen() {
 			width : 0,
 			height : 0,
 			clip : "",
-			src : ""
+			src : "",
+			filter : ""
 		};
 
 		screenStrips.push(strip);
@@ -1077,6 +1094,9 @@ function castSingleRay(rayAngle, stripIdx) {
 		// distorted_dist = correct_dist / cos(relative_angle_of_ray)
 		dist = dist * Math.cos(player.rot - rayAngle);
 
+		var wallFog = Math.max(0, Math.min(1, (dist - FOG_START) / (FOG_END - FOG_START)));
+		var wallBrightness = 1 - wallFog * 0.93;
+
 		// now calc the position, height and width of the wall strip
 
 		// "real" wall height in the game world is 1 unit, the distance from the player to the screen is viewDist,
@@ -1151,6 +1171,12 @@ function castSingleRay(rayAngle, stripIdx) {
 		if (styleZIndex != oldStyles.zIndex) {
 			strip.style.zIndex = styleZIndex;
 			oldStyles.zIndex = styleZIndex;
+		}
+
+		var styleBrightness = "brightness(" + wallBrightness.toFixed(3) + ")";
+		if (styleBrightness != oldStyles.filter) {
+			style.filter = styleBrightness;
+			oldStyles.filter = styleBrightness;
 		}
 
 	}
